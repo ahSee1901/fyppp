@@ -1,0 +1,59 @@
+import numpy as np
+import pandas as pd
+
+# 定义 DoSAnomalyDetector 类
+class DoSAnomalyDetector:
+    def __init__(self, threshold):
+        self.threshold = threshold
+        self.traffic_data = []
+        
+    def update_traffic(self, packet_count):
+        self.traffic_data.append(packet_count)
+        
+    def detect_anomaly(self):
+        if len(self.traffic_data) == 0:
+            return False
+        
+        mean_traffic = np.mean(self.traffic_data)
+        std_dev_traffic = np.std(self.traffic_data)
+        
+        latest_traffic = self.traffic_data[-1]
+        
+        if (latest_traffic - mean_traffic) > self.threshold * std_dev_traffic:
+            return True
+        else:
+            return False
+
+# 初始化异常检测器
+detector = DoSAnomalyDetector(threshold=3)
+
+# 生成正常流量数据（每秒的数据包数量，假设服从正态分布）
+normal_traffic = np.random.normal(loc=100, scale=5, size=100).astype(int)
+
+# 生成DoS攻击流量（每秒的数据包数量，假设为高峰值）
+dos_attack_traffic = np.random.normal(loc=1000, scale=50, size=10).astype(int)
+
+# 合并正常流量和攻击流量
+traffic_samples = np.concatenate((normal_traffic, dos_attack_traffic))
+
+# 检测异常
+anomaly_results = []
+for packet_count in traffic_samples:
+    detector.update_traffic(packet_count)
+    if detector.detect_anomaly():
+        anomaly_results.append(f"检测到异常流量: {packet_count}")
+    else:
+        anomaly_results.append(f"流量正常: {packet_count}")
+
+# 显示结果
+for result in anomaly_results:
+    print(result)
+
+# 将结果存储到DataFrame中 进一步分析
+results_df = pd.DataFrame({
+    'Packet Count': traffic_samples,
+    'Anomaly': [detector.detect_anomaly() for packet_count in traffic_samples]
+})
+
+# 显示前几行数据
+print(results_df.head(21))

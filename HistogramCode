@@ -1,0 +1,19 @@
+import matplotlib.pyplot as plt
+
+# Plot histograms
+plt.figure(figsize=(12, 6))
+
+# Plot normal traffic
+plt.hist(normal_traffic, bins=30, alpha=0.5, color='blue', label='Normal Traffic')
+
+# Plot DoS attack traffic
+plt.hist(dos_attack_traffic, bins=30, alpha=0.5, color='red', label='DoS Attack Traffic')
+
+# Add labels and title
+plt.xlabel('Packet Count')
+plt.ylabel('Frequency')
+plt.title('Histogram of Normal and DoS Attack Traffic')
+plt.legend()
+
+# Show plot
+plt.show()

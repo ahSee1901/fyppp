@@ -1,0 +1,123 @@
+import numpy as np
+import pandas as pd
+import sqlite3
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+class DoSAnomalyDetector:
+    def __init__(self, threshold, db_name='traffic_data.db', email='admin@example.com'):
+        self.threshold = threshold
+        self.traffic_data = []
+        self.db_name = db_name
+        self.email = email
+        self.conn = sqlite3.connect(self.db_name)
+        self.create_tables()
+
+    def create_tables(self):
+        with self.conn:
+            self.conn.execute('''
+                CREATE TABLE IF NOT EXISTS Traffic (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    packet_count INTEGER,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            self.conn.execute('''
+                CREATE TABLE IF NOT EXISTS Anomalies (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    packet_count INTEGER,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+    def update_traffic(self, packet_count):
+        self.traffic_data.append(packet_count)
+        with self.conn:
+            self.conn.execute('INSERT INTO Traffic (packet_count) VALUES (?)', (packet_count,))
+
+    def detect_anomaly(self):
+        if len(self.traffic_data) == 0:
+            return False
+        
+        mean_traffic = np.mean(self.traffic_data)
+        std_dev_traffic = np.std(self.traffic_data)
+        
+        latest_traffic = self.traffic_data[-1]
+        
+        if (latest_traffic - mean_traffic) > self.threshold * std_dev_traffic:
+            with self.conn:
+                self.conn.execute('INSERT INTO Anomalies (packet_count) VALUES (?)', (latest_traffic,))
+            self.take_action(latest_traffic)
+            return True
+        else:
+            return False
+
+    def take_action(self, packet_count):
+        # 阻止恶意流量（示例：封锁IP地址）
+        print(f"阻止恶意流量: {packet_count}")
+        # 通知系统管理员
+        self.notify_admin(packet_count)
+
+    def notify_admin(self, packet_count):
+        msg = MIMEMultipart()
+        msg['From'] = 'AnomalyDetector@gmail.com'
+        msg['To'] = self.email
+        msg['Subject'] = 'DoS Attack Detected'
+
+        body = f'Anomaly detected: {packet_count} packets. Please investigate immediately.'
+        msg.attach(MIMEText(body, 'plain'))
+
+        try:
+            with smtplib.SMTP('smtp.gmail.com', 587) as server:
+                server.starttls()
+                server.login('seerazor@gmail.com', 'Razor0053')
+                server.send_message(msg)
+            print(f"通知已发送给系统管理员：{self.email}")
+        except Exception as e:
+            print(f"发送通知失败: {e}")
+
+# 初始化异常检测器
+detector = DoSAnomalyDetector(threshold=3, email='AnomalyDetector@gmail.com')
+
+# 生成正常流量数据（每秒的数据包数量，假设服从正态分布）
+normal_traffic = np.random.normal(loc=100, scale=5, size=100).astype(int)
+
+# 生成DoS攻击流量（每秒的数据包数量，假设为高峰值）
+dos_attack_traffic = np.random.normal(loc=1000, scale=50, size=10).astype(int)
+
+# 合并正常流量和攻击流量
+traffic_samples = np.concatenate((normal_traffic, dos_attack_traffic))
+
+# 检测异常
+anomaly_results = []
+for packet_count in traffic_samples:
+    detector.update_traffic(packet_count)
+    if detector.detect_anomaly():
+        anomaly_results.append(f"检测到异常流量: {packet_count}")
+    else:
+        anomaly_results.append(f"流量正常: {packet_count}")
+
+# 显示结果
+for result in anomaly_results:
+    print(result)
+
+# 将结果存储到DataFrame中 进一步分析
+results_df = pd.DataFrame({
+    'Packet Count': traffic_samples,
+    'Anomaly': [detector.detect_anomaly() for packet_count in traffic_samples]
+})
+
+# 显示前几行数据
+print(results_df.head(21))
+
+# 从数据库中提取数据进行进一步分析
+with detector.conn:
+    traffic_data_df = pd.read_sql_query('SELECT * FROM Traffic', detector.conn)
+    anomalies_df = pd.read_sql_query('SELECT * FROM Anomalies', detector.conn)
+
+print(traffic_data_df.head())
+print(anomalies_df.head())
+
+# 关闭数据库连接
+detector.conn.close()

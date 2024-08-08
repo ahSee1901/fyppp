@@ -1,0 +1,120 @@
+import pandas as pd
+import numpy as np
+import sqlite3
+
+# Load the data from the uploaded CSV file
+file_path = 'C:\\Users\\yongj\\Downloads\\CICDS2017\\Wednesday-workingHours.pcap_ISCX.csv'
+df = pd.read_csv(file_path)
+
+# Strip any whitespace from the column names
+df.columns = df.columns.str.strip()
+
+# Calculate the total packet count using the corrected column names
+try:
+    df['Total Packet Count'] = df['Total Fwd Packets'] + df['Total Backward Packets']
+except KeyError as e:
+    print(f"\nColumn not found: {e}")
+
+class DoSAnomalyDetector:
+    def __init__(self, threshold, db_name='traffic_data.db'):
+        self.threshold = threshold
+        self.traffic_data = []
+        self.db_name = db_name
+        self.conn = sqlite3.connect(self.db_name)
+        self.create_tables()
+
+    def create_tables(self):
+        with self.conn:
+            self.conn.execute('''
+                CREATE TABLE IF NOT EXISTS Traffic (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    packet_count INTEGER,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            self.conn.execute('''
+                CREATE TABLE IF NOT EXISTS Anomalies (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    packet_count INTEGER,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+    def update_traffic(self, packet_count):
+        self.traffic_data.append(packet_count)
+        with self.conn:
+            self.conn.execute('INSERT INTO Traffic (packet_count) VALUES (?)', (packet_count,))
+
+    def detect_anomaly(self):
+        if len(self.traffic_data) == 0:
+            return False
+
+        mean_traffic = np.mean(self.traffic_data)
+        std_dev_traffic = np.std(self.traffic_data)
+
+        latest_traffic = self.traffic_data[-1]
+
+        if (latest_traffic - mean_traffic) > self.threshold * std_dev_traffic:
+            with self.conn:
+                self.conn.execute('INSERT INTO Anomalies (packet_count) VALUES (?)', (latest_traffic,))
+            return True
+        else:
+            return False
+
+# Initialize the anomaly detector
+detector = DoSAnomalyDetector(threshold=3)
+
+# Generate normal traffic data (packets per second, assumed to follow a normal distribution)
+normal_traffic = np.random.normal(loc=100, scale=5, size=100).astype(int)
+
+# Generate DoS attack traffic (packets per second, assumed to be peak values)
+dos_attack_traffic = np.random.normal(loc=1000, scale=50, size=10).astype(int)
+
+# Combine normal traffic and attack traffic
+traffic_samples = np.concatenate((normal_traffic, dos_attack_traffic))
+
+# Apply the detection algorithm on CSV file data
+csv_anomaly_results = []
+for packet_count in df['Total Packet Count']:
+    detector.update_traffic(packet_count)
+    if detector.detect_anomaly():
+        csv_anomaly_results.append((packet_count, "Anomaly"))
+    else:
+        csv_anomaly_results.append((packet_count, "Normal"))
+
+# Reset the detector for simulated data
+detector.traffic_data = []
+
+# Apply the detection algorithm on simulated traffic data
+sim_anomaly_results = []
+for packet_count in traffic_samples:
+    detector.update_traffic(packet_count)
+    if detector.detect_anomaly():
+        sim_anomaly_results.append((packet_count, "Anomaly"))
+    else:
+        sim_anomaly_results.append((packet_count, "Normal"))
+
+# Store results in DataFrames for further analysis
+csv_results_df = pd.DataFrame(csv_anomaly_results, columns=['Packet Count', 'Anomaly'])
+sim_results_df = pd.DataFrame(sim_anomaly_results, columns=['Packet Count', 'Anomaly'])
+
+# Display the first few rows of the DataFrames
+print("\nCSV File Results:")
+print(csv_results_df.head())
+
+print("\nSimulated Traffic Results:")
+print(sim_results_df.head())
+
+# Extract data from the database for further analysis
+with detector.conn:
+    traffic_data_df = pd.read_sql_query('SELECT * FROM Traffic', detector.conn)
+    anomalies_df = pd.read_sql_query('SELECT * FROM Anomalies', detector.conn)
+
+print("\nTraffic Data from Database:")
+print(traffic_data_df.head())
+
+print("\nAnomalies Data from Database:")
+print(anomalies_df.head())
+
+# Close the database connection
+detector.conn.close()
